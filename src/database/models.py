@@ -29,5 +29,5 @@ class MovieModel(Base):
         UniqueConstraint("name", "date", name="unique_movie_constraint"),
     )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<Movie(name='{self.name}', release_date='{self.date}', score={self.score})>"
