@@ -7,11 +7,8 @@ from fastapi import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from math import ceil
-
-from src.database import (
-    get_db,
-    MovieModel,
-)
+from src.database import MovieModel
+from src.database.session import get_db
 from src.schemas.movies import (
     MovieDetailResponseSchema,
     MovieListResponseSchema,

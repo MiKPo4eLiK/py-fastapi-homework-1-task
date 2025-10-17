@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from src.database import init_db, close_db
+from src.database.session import (
+    init_db,
+    close_db,
+)
 from src.routes import movie_router
 
 @asynccontextmanager
