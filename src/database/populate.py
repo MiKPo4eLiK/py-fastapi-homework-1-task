@@ -1,3 +1,4 @@
+import asyncio
 import pandas as pd
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,34 +19,47 @@ class CSVDatabaseSeeder:
         self._db_session = db_session
 
     async def is_db_populated(self) -> bool:
+        """Check if the Movie table already has records."""
         result = await self._db_session.execute(select(func.count()).select_from(MovieModel))
         total_count = result.scalar_one()
         return total_count > 0
 
-    async def _preprocess_csv(self) -> pd.DataFrame:
+    def _preprocess_csv(self) -> pd.DataFrame:
+        """Read and clean the CSV file synchronously."""
+        print("Preprocessing CSV file...")
         data = pd.read_csv(self._csv_file_path)
+
+        # Remove duplicates
         data = data.drop_duplicates(subset=['names', 'date_x'], keep='first')
+
+        # Handle missing values
         data['crew'] = data['crew'].fillna('Unknown')
         data['genre'] = data['genre'].fillna('Unknown')
+
+        # Clean genre and dates
         data['genre'] = data['genre'].str.replace('\u00A0', '', regex=True)
-        data['date_x'] = data['date_x'].str.strip()
+        data['date_x'] = data['date_x'].astype(str).str.strip()
         data['date_x'] = pd.to_datetime(data['date_x'], format='%m/%d/%Y', errors='coerce')
         data['date_x'] = data['date_x'].dt.date
-        print("Preprocessing csv file")
+
+        # Safe numeric conversion
+        data['budget_x'] = pd.to_numeric(data['budget_x'], errors='coerce').fillna(0).astype(int)
+        data['revenue'] = pd.to_numeric(data['revenue'], errors='coerce').fillna(0).astype(int)
+
         return data
 
     async def seed(self) -> None:
+        """Seed the database with movie data."""
         try:
+            # Cancel any previous transaction
             if self._db_session.in_transaction():
                 await self._db_session.rollback()
 
-            data = await self._preprocess_csv()
+            # Run CSV preprocessing in a background thread
+            data = await asyncio.to_thread(self._preprocess_csv)
 
             async with self._db_session.begin():
                 for _, row in tqdm(data.iterrows(), total=data.shape[0], desc="Seeding database"):
-                    budget = int(row['budget_x']) if not pd.isna(row['budget_x']) else 0
-                    revenue = int(row['revenue']) if not pd.isna(row['revenue']) else 0
-
                     movie = MovieModel(
                         name=row['names'],
                         date=row['date_x'],
@@ -56,23 +70,24 @@ class CSVDatabaseSeeder:
                         orig_title=row['orig_title'],
                         status=row['status'],
                         orig_lang=row['orig_lang'],
-                        budget=budget,
-                        revenue=revenue,
+                        budget=row['budget_x'],
+                        revenue=row['revenue'],
                         country=row['country']
                     )
                     self._db_session.add(movie)
 
         except SQLAlchemyError as e:
-            print(f"An error occurred: {e}")
+            print(f"❌ Database error: {e}")
             await self._db_session.rollback()
             raise
         except Exception as e:
-            print(f"Unexpected error: {e}")
+            print(f"❌ Unexpected error: {e}")
             await self._db_session.rollback()
             raise
 
 
 async def main() -> None:
+    """Initialize DB and populate with CSV data."""
     settings = get_settings()
     await init_db()
 
@@ -82,13 +97,12 @@ async def main() -> None:
         if not await seeder.is_db_populated():
             try:
                 await seeder.seed()
-                print("Database seeding completed successfully.")
+                print("✅ Database seeding completed successfully.")
             except Exception as e:
-                print(f"Failed to seed the database: {e}")
+                print(f"❌ Failed to seed the database: {e}")
         else:
-            print("Database is already populated. Skipping seeding.")
+            print("ℹ️ Database is already populated. Skipping seeding.")
 
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())
